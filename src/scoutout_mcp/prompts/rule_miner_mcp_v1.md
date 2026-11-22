@@ -7,6 +7,8 @@ For each input type you get:
 - "columns": where the examples come from
 - "examples": real values of that type
 - "existing_rules": patterns that already exist — propose alternatives or additions, not copies
+- "free_text": true when the examples are free texts in which the value appears only sometimes. Then the pattern
+  must find the value INSIDE the text; use "context" words seen next to it, and do not try to match the whole text.
 The user's "hint" (if any) describes the data in their own words.
 
 Each rule:

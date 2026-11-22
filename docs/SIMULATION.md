@@ -16,6 +16,23 @@
 
 Sızıntı kontrolü `scripts/sim/leak_check.py` ile yapıldı. Ajanların yazdığı raporlar da tarandı; gerçek değer içermiyorlar.
 
+## Grup D — kurum LLM'i olarak bir ajan
+
+Kurum LLM'inin (Qwen3, vLLM gateway) yerine ikinci bir Haiku ajanı kullanıldı. MCP sunucusu kural çıkarma isteğini gerçekte gateway'e nasıl gönderecekse aynen öyle gönderdi: aynı model adı, `temperature: 0` ve `enable_thinking: false`. `scripts/sim/relay_llm.py` isteği "LLM ajanı"na iletti. LLM ajanı gerçek örnek değerleri görüp kural önerdi; Copilot rolündeki ajan bu değerleri hiç görmedi.
+
+| Senaryo | Sonuç |
+|---|---|
+| D1 Müşteri no kuralı (CustomerNo) | Geçti: `MN` + 8 rakam; duyarlılık 1,0, kesinlik 1,0 |
+| D2 Kart referans kuralı (CardRef) | Geçti: `CR` + 10 rakam |
+| D3 Serbest metinde müşteri no (CrmLog.Message) | 1. denemede kısmen geçti (kopya kontrolü hatası, aşağıda). Düzeltmeden sonra geçti: bağlam kelimeli ayrı kural; kesinlik 1,0, metinlerin %32'sinde bulundu |
+| D4 Ölçüm tablosu | Geçti |
+| D5 Etkinleştir ve yeniden tara | Geçti: CrmLog.Ref hassas (müşteri no), Message seyrek, Card.CardRef hassas (kart referansı) |
+| D6 Aynı kurallar KartKopya'da | Geçti: sonuçlar aynı |
+| D7 Benzer görünen DekontNo yanlış alarm veriyor mu? | Geçti: temiz; tesadüfi kontrol hanesi eşleşmeleri düşülmüş |
+| D8 Kural raporu | Geçti |
+
+LLM ajanı, serbest metin isteğinde yalnızca biçimin yetmediğini kendisi fark etti. Negatif örneklerdeki bir referans kolonu aynı biçimdeydi; bu yüzden kurala bağlam kelimesi ekledi ("müşteri"). Ajanın aldığı hiçbir cevapta ve store, log ve raporların hiçbirinde gerçek değer yok.
+
 ## Simülasyonun bulduğu ve düzeltilenler
 
 | Bulgu | Düzeltme |
@@ -30,10 +47,13 @@ Sızıntı kontrolü `scripts/sim/leak_check.py` ile yapıldı. Ajanların yazd�
 | Kural emekliye ayrılınca taban değerleriyle yapılan eşleşmenin sürdüğü belli değildi | `decide_rule` açıklamasına not eklendi |
 | Kural raporunda kurulumla gelen kurallar yoktu | Raporda ayrı bir sayfa olarak eklendi |
 | Birkaç küçük tutarsızlık: rapor yolu, kalan süre, tekrarlanan önekler, çelişki metni | Düzeltildi |
+| Serbest metin kolonundan kural çıkarılamıyordu: ölçüm değerlerin %90'ında eşleşme bekliyordu | Serbest metinde duyarlılık şartı yok; kesinlik ≥ 0,9 ve en az k eşleşme yeterli. LLM'e kolonun serbest metin olduğu bildiriliyor |
+| Bağlam kelimeli bir kural, aynı desenli kuralın kopyası sayılıyordu | Kopya kontrolü desen, bağlam ve kontrol hanesinin hepsine bakıyor |
+| Taranmamış bir tablo sorulunca boş liste dönüyordu | "Henüz taranmadı" mesajı dönüyor |
 
 ## Bilinen sınırlar
 
-- **Kural üretimi gerçek LLM'le denenmedi.** Simülasyonda yerel LLM yerine sahte bir test sunucusu kullanıldı. Bu sunucu örneklerden biçim kuralı türetiyor ve bilerek gerçek bir değer içeren kural da öneriyor; sistem o kuralı her seferinde reddetti. Gerçek gateway'deki Qwen3'ün kural kalitesi ayrıca denenmeli.
+- **Kurum LLM'inin kendisi denenmedi.** A–C gruplarında sahte bir test sunucusu kullanıldı; bu sunucu bilerek gerçek değer içeren bir kural da öneriyor ve sistem o kuralı her seferinde reddetti. D grubunda LLM rolünü bir Haiku ajanı üstlendi. Gerçek gateway'deki Qwen3'ün kural kalitesi ayrıca denenmeli.
 - **VS Code / Copilot istemcisinde denenmedi.** Simülasyon MCP protokolünü gerçek bir istemciyle kullandı, ama VS Code arayüzünde değil.
 - **Bilinçli tasarım tercihleri:** `scan_missing` sadece maskeleme listesindeki tabloları tarar; listede olmayan tablolarda eksik maskelemeyi görmek için önce `scan` gerekir. Sadece adı çelişkili olan kolonlar da çelişki olarak işaretlenir.
 

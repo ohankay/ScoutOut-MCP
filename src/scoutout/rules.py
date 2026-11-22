@@ -165,12 +165,28 @@ def measure(pattern: str, positives: list[str], negatives: list[str], context: l
             "positives": len(positives), "negatives": len(negatives), "tp": tp, "fp": fp}
 
 
+def signature(body: dict) -> tuple:
+    """What makes two rules the same: the pattern AND its conditions (a context-gated variant is a different rule)."""
+    return (body["pattern"], tuple(sorted(fold(w) for w in body.get("context") or [])), body.get("checksum") or None,
+            bool(body.get("ignore_case")))
+
+
+def find_rule(store: Store, dtype: str, body: dict):
+    sig = signature(body)
+    for r in store.q("SELECT * FROM rules WHERE data_type=? AND json_extract(body_json, '$.pattern')=? ORDER BY id DESC",
+                     dtype, body["pattern"]):
+        if signature(json.loads(r["body_json"])) == sig:
+            return r
+    return None
+
+
 def submit(store: Store, user: str, dtype: str, body: dict, source: str, key: bytes, ref_dir: Path | None,
-           positives: list[str], negatives: list[str], pre_reason: str | None = None) -> str:
+           positives: list[str], negatives: list[str], pre_reason: str | None = None, min_recall: float = MIN_RECALL,
+           min_matches: int = 1) -> str:
     """Run a proposed rule through the gate and record it. Returns its status.
 
     ``pre_reason``: a rejection found by the caller's own checks (e.g. the MCP generality / shown-value checks)."""
-    if store.one("SELECT 1 FROM rules WHERE data_type=? AND json_extract(body_json, '$.pattern')=?", dtype, body["pattern"]):
+    if find_rule(store, dtype, body) is not None:
         return "DUPLICATE"
     reason = pre_reason or check_syntax_and_redos(body["pattern"]) or leak_reason(body, key, ref_dir)
     metrics = {}
@@ -180,7 +196,9 @@ def submit(store: Store, user: str, dtype: str, body: dict, source: str, key: by
                               bool(body.get("ignore_case")))
         except TimeoutError:
             metrics, reason = {}, "desen çok yavaş çalışıyor (ölçüm süresi aşıldı); daha basit bir desen yazın"
-        if reason is None and (metrics["sensitivity"] < MIN_RECALL or metrics["precision"] < MIN_PRECISION):
+        if reason is None and metrics["tp"] < min_matches:
+            reason = f"pozitif örneklerde yeterli eşleşme yok ({min_matches} gerekli)"
+        if reason is None and (metrics["sensitivity"] < min_recall or metrics["precision"] < MIN_PRECISION):
             reason = f"eşik altında (duyarlılık {metrics['sensitivity']:.2f}, kesinlik {metrics['precision']:.2f})"
     status = "CANDIDATE" if reason is None else "REJECTED"
     store.x("INSERT INTO rules (data_type, kind, body_json, source, status, metrics_json, created_at, decided_by, decided_at, reason) "

@@ -15,7 +15,7 @@ from importlib import resources
 from scoutout.connector import open_database
 from scoutout.decision_engine.engine import _text
 from scoutout.profiler import is_free_text, profile, shape
-from scoutout.rules import CHECKSUMS, checksum_fn, leak_reason, submit
+from scoutout.rules import CHECKSUMS, checksum_fn, find_rule, leak_reason, submit
 from scoutout.sampler import Sampler
 from scoutout.store import now
 
@@ -88,8 +88,10 @@ def _budget(svc: Service, n: int = 1) -> None:
 
 
 def _gate(svc: Service, rule: dict, source: str, positives: list[str], negatives: list[str], shown: list[str],
-          allowed_types: set[str] | None = None, extra: dict | None = None) -> dict:
-    """Normalise, run the MCP checks and the core gate. A rule rejected for carrying a value is never stored."""
+          allowed_types: set[str] | None = None, extra: dict | None = None, free_text: bool = False) -> dict:
+    """``free_text``: the positives are texts that only sometimes contain the value, so recall is not required —
+    only precision and at least k matches."""
+    # Normalise, run the MCP checks and the core gate. A rule rejected for carrying a value is never stored.
     from scoutout.knowledge import hmac_key, load_active_pack
 
     try:
@@ -109,9 +111,9 @@ def _gate(svc: Service, rule: dict, source: str, positives: list[str], negatives
         return {"status": "REJECTED", "data_type": dtype, "reason": leak, "pattern": None}
     _budget(svc)
     svc.store.audit(USER, "rule.measure", dtype, source=source)
-    status = submit(svc.store, USER, dtype, body | (extra or {}), source, key, ref_dir, positives, negatives)
-    r = svc.store.one("SELECT * FROM rules WHERE data_type=? AND json_extract(body_json, '$.pattern')=? ORDER BY id DESC LIMIT 1",
-                      dtype, body["pattern"])
+    kw = {"min_recall": 0.0, "min_matches": svc.mcp.k} if free_text else {}
+    status = submit(svc.store, USER, dtype, body | (extra or {}), source, key, ref_dir, positives, negatives, **kw)
+    r = find_rule(svc.store, dtype, body)
     view = svc.rule_view(r) if r else {"data_type": dtype}
     if status == "DUPLICATE":
         view["note"] = "Bu desen zaten kayıtlı."
@@ -171,17 +173,18 @@ def mine_rules(svc: Service, entries: list[dict], hint: str = "", max_rules: int
         if not vs:
             raise ValueError(f"{dtype}: örneklemde dolu değer yok.")
         shown[dtype] = rng.sample(vs, min(svc.mcp.mine_values, len(vs)))
+    free = {dtype: is_free_text(profile(vs)) for dtype, vs in positives.items()}
     existing = {dtype: [json.loads(r["body_json"])["pattern"] for r in svc.store.q(
         "SELECT body_json FROM rules WHERE data_type=? AND status IN ('ACTIVE','CANDIDATE')", dtype)] for dtype in positives}
     message = {"hint": (hint or "")[:1000],
-               "types": {dtype: {"columns": labels[dtype], "examples": shown[dtype], "existing_rules": existing[dtype]}
-                         for dtype in positives},
+               "types": {dtype: {"columns": labels[dtype], "free_text": free[dtype], "examples": shown[dtype],
+                                 "existing_rules": existing[dtype]} for dtype in positives},
                "negative_examples": neg_shown}
     prompt = resources.files("scoutout_mcp.prompts").joinpath(f"{PROMPT_VERSION}.md").read_text(encoding="utf-8")
     try:
         answer = client.chat_json(prompt, json.dumps(message, ensure_ascii=False))
     except Exception as e:  # noqa: BLE001 - connection refused, timeout, bad JSON
-        raise ValueError(f"Yerel LLM'den yanıt alınamadı ({type(e).__name__}). Ollama çalışıyor mu?") from None
+        raise ValueError(f"Yerel LLM'den yanıt alınamadı ({type(e).__name__}). LLM sunucusu çalışıyor mu?") from None
     proposals = answer.get("rules") if isinstance(answer, dict) else None
     if not isinstance(proposals, list):
         raise ValueError("Yerel LLM beklenen biçimde yanıt vermedi ({\"rules\": [...]}).")
@@ -191,7 +194,7 @@ def mine_rules(svc: Service, entries: list[dict], hint: str = "", max_rules: int
         dtype = str((p or {}).get("data_type", "")).upper() if isinstance(p, dict) else ""
         others = [v for t, vs in positives.items() if t != dtype for v in vs]
         results.append(_gate(svc, p, "llm-derived", positives.get(dtype, []), negatives + others, all_shown,
-                             set(positives), {"prompt": PROMPT_VERSION}))
+                             set(positives), {"prompt": PROMPT_VERSION}, free.get(dtype, False)))
     counts = Counter(r.get("status") for r in results)
     return {"proposed": len(results), "candidates": counts.get("CANDIDATE", 0), "rejected": counts.get("REJECTED", 0),
             "invalid": counts.get("INVALID", 0), "rules": results,
@@ -218,7 +221,7 @@ def propose_rule(svc: Service, rule: dict, positives: list[dict], negatives: lis
                     neg.extend(vs)
     if not pos:
         raise ValueError("Pozitif kolonlarda örneklemde dolu değer yok.")
-    return _gate(svc, rule, "agent", pos, neg, shown=[])
+    return _gate(svc, rule, "agent", pos, neg, shown=[], free_text=is_free_text(profile(pos)))
 
 
 def profile_column(svc: Service, database: str, table: str, column: str) -> dict:
