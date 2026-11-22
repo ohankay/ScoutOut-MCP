@@ -1,0 +1,1 @@
+"""ScoutOut MCP server."""

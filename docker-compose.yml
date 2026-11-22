@@ -1,0 +1,29 @@
+# ScoutOut-Mcp yardımcı servisleri (MCP sunucusu VS Code tarafından başlatılır)
+services:
+  # Optional local LLM for rule suggestions: docker compose --profile llm up -d
+  # then pull a model:
+  #   docker compose exec ollama ollama pull qwen2.5:7b-instruct
+  ollama:
+    image: ollama/ollama:latest
+    profiles: ["llm"]
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama-data:/root/.ollama
+
+  # Development/test SQL Server with synthetic data: docker compose --profile dev up -d mssql
+  mssql:
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    profiles: ["dev"]
+    environment:
+      ACCEPT_EULA: "Y"
+      MSSQL_PID: Developer
+      MSSQL_SA_PASSWORD: ${MSSQL_SA_PASSWORD:-}
+    ports:
+      - "${MSSQL_PORT:-14333}:1433"
+    volumes:
+      - mssql-data:/var/opt/mssql
+
+volumes:
+  ollama-data:
+  mssql-data:

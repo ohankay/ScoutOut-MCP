@@ -1,0 +1,56 @@
+# section:city
+İstanbul
+Ankara
+İzmir
+Bursa
+Antalya
+Konya
+Adana
+Gaziantep
+Kayseri
+Eskişehir
+Trabzon
+Samsun
+Mersin
+Diyarbakır
+Denizli
+# section:district
+Kadıköy
+Üsküdar
+Beşiktaş
+Çankaya
+Keçiören
+Karşıyaka
+Bornova
+Nilüfer
+Muratpaşa
+Selçuklu
+Seyhan
+Şahinbey
+Melikgazi
+Tepebaşı
+Ortahisar
+# section:neighborhood
+Atatürk
+Cumhuriyet
+Yenimahalle
+Fatih
+Bahçelievler
+Esentepe
+Gültepe
+Kocatepe
+Yeşilyurt
+Bağlarbaşı
+Hürriyet
+Zafer
+# section:street
+İstiklal
+Gazi
+Mimar Sinan
+Barbaros
+İnönü
+Menderes
+Ziya Gökalp
+Mevlana
+Kazım Karabekir
+Fevzi Çakmak
