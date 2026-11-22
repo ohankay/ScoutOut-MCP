@@ -4,7 +4,8 @@
 
 .EXAMPLE
   .\scripts\setup.ps1 -Server "sqlkopya01,1433"
-  .\scripts\setup.ps1 -Server "localhost,14333" -TrustServerCertificate -Workspace D:\workseri-kesif
+  .\scripts\setup.ps1 -Server "localhost,14333" -TrustServerCertificate -Workspace D:\works\veri-kesif
+#  (Workspace: VS Code'da açacağınız klasör)
 #>
 param(
     [Parameter(Mandatory = $true)][string]$Server,
