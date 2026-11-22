@@ -601,7 +601,7 @@ class Service:
         c = self.cfg.llm
         if not c.endpoint:
             raise ValueError("Yerel LLM ayarlanmamış: config.yaml → llm.endpoint (ör. http://localhost:11434/v1).")
-        return LlmClient(c.endpoint, c.model, c.allowed_hosts, c.timeout_s)
+        return LlmClient.from_config(c)
 
     def teach_baseline(self, entries: list[dict], negatives: list[dict] | None = None) -> dict:
         from . import miner

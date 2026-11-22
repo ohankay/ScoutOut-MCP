@@ -1624,6 +1624,7 @@ dependencies = [
     { name = "pyyaml" },
     { name = "regex" },
     { name = "scikit-learn" },
+    { name = "truststore" },
     { name = "tzdata" },
 ]
 
@@ -1645,6 +1646,7 @@ requires-dist = [
     { name = "pyyaml", specifier = ">=6.0" },
     { name = "regex", specifier = ">=2026.11.19" },
     { name = "scikit-learn", specifier = ">=1.9.1" },
+    { name = "truststore", specifier = ">=0.10.5" },
     { name = "tzdata", specifier = ">=2026.6" },
 ]
 

@@ -282,7 +282,7 @@ def mine_rules(cfg: Config, store: Store, user: str, client=None, max_columns: i
     if client is None:
         if not cfg.llm.endpoint:
             raise ValueError("Dil modeli adresi ayarlanmamış.")
-        client = LlmClient(cfg.llm.endpoint, cfg.llm.model, cfg.llm.allowed_hosts, cfg.llm.timeout_s)
+        client = LlmClient.from_config(cfg.llm)
     refdet = next(d for d in pack.detectors() if isinstance(d, RefSetDetector))
 
     free_cols: dict[str, list[tuple[str, str, str]]] = {}  # per database source

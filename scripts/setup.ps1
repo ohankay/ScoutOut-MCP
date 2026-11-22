@@ -1,10 +1,10 @@
 <#
 .SYNOPSIS
-  ScoutOut-Mcp kurulumu: bağımlılıklar, yapılandırma, parola dosyası, VS Code MCP tanımı ve TDM ajanı.
+  ScoutOut-Mcp kurulumu: bağımlılıklar, yapılandırma, parola dosyası, VS Code MCP tanımı ve örnek Copilot ajanı.
 
 .EXAMPLE
   .\scripts\setup.ps1 -Server "sqlkopya01,1433"
-  .\scripts\setup.ps1 -Server "localhost,14333" -TrustServerCertificate -Workspace D:\works\tdm
+  .\scripts\setup.ps1 -Server "localhost,14333" -TrustServerCertificate -Workspace D:\workseri-kesif
 #>
 param(
     [Parameter(Mandatory = $true)][string]$Server,
@@ -48,7 +48,7 @@ if ($Force -or -not (Test-Path $Config)) {
     Write-Host "Mevcut yapılandırma korunuyor: $Config (yenilemek için -Force)"
 }
 
-# --- VS Code: MCP sunucusu ve TDM ajanı ---
+# --- VS Code: MCP sunucusu ve örnek ajan ---
 $RepoJson = $Repo.Replace('\', '/')
 $args_ = "[`"run`", `"--directory`", `"$RepoJson`", `"scoutout-mcp`"]"
 $copilot = "{`n  `"mcpServers`": {`n    `"scoutout`": {`n      `"type`": `"stdio`",`n      `"command`": `"uv`",`n      `"args`": $args_,`n      `"tools`": [`"*`"]`n    }`n  }`n}`n"
@@ -58,9 +58,9 @@ $local = "{`n  `"servers`": {`n    `"scoutout`": {`n      `"type`": `"stdio`",`n
 [IO.File]::WriteAllText((Join-Path $Workspace ".vscode\mcp.json"), $local, (New-Object Text.UTF8Encoding $false))
 if ($Workspace -ne $Repo) {
     New-Item -ItemType Directory -Force (Join-Path $Workspace ".github\agents") | Out-Null
-    Copy-Item (Join-Path $Repo ".github\agents\tdm.agent.md") (Join-Path $Workspace ".github\agents\tdm.agent.md") -Force
+    Copy-Item (Join-Path $Repo ".github\agents\scoutout.agent.md") (Join-Path $Workspace ".github\agents\scoutout.agent.md") -Force
 }
-Write-Host "VS Code tanımları yazıldı: $Workspace\.mcp.json, .vscode\mcp.json, .github\agents\tdm.agent.md"
+Write-Host "VS Code tanımları yazıldı: $Workspace\.mcp.json, .vscode\mcp.json, .github\agents\scoutout.agent.md"
 
 Write-Host "`nKontrol:"
 & uv run --directory $Repo scoutout-mcp --check

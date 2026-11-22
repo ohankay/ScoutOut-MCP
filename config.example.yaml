@@ -18,9 +18,19 @@ mcp:
     FROM Dtg.TableColumnDataMaskDetail
   k: 20                            # 20'den az görülen sayım ve biçimler ajana gösterilmez
 
-llm:                               # yerel LLM (Ollama); sadece kural madenciliğinde kullanılır
-  endpoint: http://localhost:11434/v1
-  model: qwen2.5:14b-instruct
+llm:                               # kurum içi OpenAI uyumlu LLM; sadece mine_rules kullanır. Bulut sağlayıcı yok.
+  # Ollama örneği:  endpoint: http://localhost:11434/v1   model: qwen2.5:14b-instruct
+  endpoint: https://LLM-GATEWAY/vllm-qwen3-235b-fp8/v1
+  model: /data/models--Qwen--Qwen3-235B-FP8
+  allowed_hosts: [LLM-GATEWAY]     # endpoint'in sunucu adı burada olmalı (izin listesi)
+  temperature: 0
+  timeout_s: 120
+  # max_tokens: 1024
+  extra_body:                      # Qwen3 + vLLM: düşünme modunu kapatır
+    chat_template_kwargs: {enable_thinking: false}
+  api_key_env: SCOUTOUT_LLM_API_KEY  # sunucu anahtar istiyorsa (veya api_key_file: dosya yolu)
+  ca_bundle: ""                    # boş = Windows sertifika deposu (kurumsal CA); gerekirse PEM dosyası
+  # Bağlantı her zaman proxy'siz kurulur.
 
 # scan:                            # isteğe bağlı tarama ayarları (ScoutOut ile aynı)
 #   concurrency: 4

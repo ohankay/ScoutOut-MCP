@@ -1,6 +1,6 @@
 # ScoutOut-Mcp
 
-VS Code Copilot'taki **TDM ajanının** kullandığı yerel MCP sunucusu. Ajan gerçek veriyi hiç görmez; sunucu sadece meta veri, kararlar, oranlar ve biçim istatistikleri döner.
+VS Code Copilot ajanlarının MCP üzerinden kullandığı yerel hassas veri keşif sunucusu. Ajan gerçek veriyi hiç görmez; sunucu sadece meta veri, kararlar, oranlar ve biçim istatistikleri döner.
 
 Sunucu şunları yapar:
 - Deterministik kurallarla hassas veri taraması.
@@ -18,16 +18,9 @@ Betik şunları yapar:
 3. `.mcp.json` ve `.vscode\mcp.json` dosyalarını yazar.
 4. `scoutout-mcp --check` ile bağlantıyı, salt-okur kontrolünü, maskeleme listesini ve yerel LLM'i doğrular.
 
-VS Code'da Copilot Chat'i açın ve ajan olarak **TDM**'i seçin.
+VS Code'da Copilot Chat'i açın. Araçlar her Copilot ajanında (Agent modu) kullanılabilir. Hazır örnek ajan **ScoutOut** (`.github/agents/scoutout.agent.md`) sadece bu araçlara erişir; kendi ajanınızı yazarken `tools: ['scoutout/*']` ekleyin. Ajana terminal ve dosya araçları vermemeniz önerilir: terminali olan bir ajan veritabanına doğrudan bağlanabilir.
 
-Yerel LLM için:
-```powershell
-docker compose --profile llm up -d
-```
-Ardından modeli indirin:
-```powershell
-docker compose exec ollama ollama pull qwen2.5:14b-instruct
-```
+Kural üretimi (`mine_rules`) kurum içi OpenAI uyumlu bir LLM kullanır: vLLM gateway'i ya da Ollama. Bunu `config.yaml` → `llm` bölümünde tanımlayın: adres, model, izinli sunucu, `extra_body`, API anahtarı ve sertifika. Bağlantı proxy'siz kurulur; HTTPS sertifikası Windows sertifika deposundan doğrulanır.
 
 ## Araçlar
 | Grup | Araçlar |
