@@ -107,20 +107,47 @@ def leak_reason(body: dict, key: bytes, ref_dir: Path | None) -> str | None:
     return None
 
 
-def measure(pattern: str, positives: list[str], negatives: list[str], context: list[str] | None = None) -> dict:
+CHECKSUMS = {"tckn": "tckn_valid", "vkn": "vkn_valid", "luhn": "luhn_valid", "iban": "iban_valid"}
+_SEPARATORS = re.compile(r"[\s\-./]")
+
+
+def checksum_fn(name: str | None):
+    """The validator a rule may require (only the verified built-in algorithms)."""
+    if not name:
+        return None
+    from scoutout.detectors.validators import checksums
+
+    if name not in CHECKSUMS:
+        raise ValueError(f"Bilinmeyen doğrulama algoritması: {name}. Seçenekler: {', '.join(CHECKSUMS)}")
+    return getattr(checksums, CHECKSUMS[name])
+
+
+def rule_matches(rx, text: str, context: list[str], check=None) -> list:
+    """Matches of a rule in one value: regex, then optional nearby context word, then optional checksum."""
+    try:
+        found = list(rx.finditer(text, timeout=0.05))
+    except TimeoutError:
+        return []
+    out = []
+    for m in found:
+        if context and not any(w in fold(text[max(0, m.start() - 30) : m.end() + 30]) for w in context):
+            continue
+        if check is not None and not check(_SEPARATORS.sub("", m.group()).upper()):
+            continue
+        out.append(m)
+    return out
+
+
+def measure(pattern: str, positives: list[str], negatives: list[str], context: list[str] | None = None,
+            checksum: str | None = None, ignore_case: bool = False) -> dict:
     import regex
 
-    rx = regex.compile(pattern)
+    rx = regex.compile(pattern, regex.IGNORECASE if ignore_case else 0)
     ctx = [fold(w) for w in (context or [])]
+    check = checksum_fn(checksum)
 
     def hit(text: str) -> bool:
-        try:
-            for m in rx.finditer(text, timeout=0.05):
-                if not ctx or any(w in fold(text[max(0, m.start() - 30) : m.end() + 30]) for w in ctx):
-                    return True
-        except TimeoutError:
-            return False
-        return False
+        return bool(rule_matches(rx, text, ctx, check))
 
     tp = sum(hit(v) for v in positives)
     fp = sum(hit(v) for v in negatives)
@@ -128,18 +155,21 @@ def measure(pattern: str, positives: list[str], negatives: list[str], context: l
     spec = 1 - fp / len(negatives) if negatives else 1.0
     prec = tp / (tp + fp) if tp + fp else 0.0
     return {"sensitivity": round(sens, 4), "specificity": round(spec, 4), "precision": round(prec, 4),
-            "positives": len(positives), "negatives": len(negatives)}
+            "positives": len(positives), "negatives": len(negatives), "tp": tp, "fp": fp}
 
 
 def submit(store: Store, user: str, dtype: str, body: dict, source: str, key: bytes, ref_dir: Path | None,
-           positives: list[str], negatives: list[str]) -> str:
-    """Run a proposed rule through the gate and record it. Returns its status."""
+           positives: list[str], negatives: list[str], pre_reason: str | None = None) -> str:
+    """Run a proposed rule through the gate and record it. Returns its status.
+
+    ``pre_reason``: a rejection found by the caller's own checks (e.g. the MCP generality / shown-value checks)."""
     if store.one("SELECT 1 FROM rules WHERE data_type=? AND json_extract(body_json, '$.pattern')=?", dtype, body["pattern"]):
         return "DUPLICATE"
-    reason = check_syntax_and_redos(body["pattern"]) or leak_reason(body, key, ref_dir)
+    reason = pre_reason or check_syntax_and_redos(body["pattern"]) or leak_reason(body, key, ref_dir)
     metrics = {}
     if reason is None:
-        metrics = measure(body["pattern"], positives, negatives, body.get("context"))
+        metrics = measure(body["pattern"], positives, negatives, body.get("context"), body.get("checksum"),
+                          bool(body.get("ignore_case")))
         if metrics["sensitivity"] < MIN_RECALL or metrics["precision"] < MIN_PRECISION:
             reason = f"eşik altında (duyarlılık {metrics['sensitivity']:.2f}, kesinlik {metrics['precision']:.2f})"
     status = "CANDIDATE" if reason is None else "REJECTED"

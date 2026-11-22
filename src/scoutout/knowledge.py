@@ -157,22 +157,19 @@ class RuleDetector(Detector):
     def __init__(self, rule_id: int, dtype: str, body: dict, source: str, metrics: dict):
         import regex
 
+        from scoutout.rules import checksum_fn
+
         self.rx = regex.compile(body["pattern"], regex.IGNORECASE if body.get("ignore_case") else 0)
         self.context = [fold(w) for w in body.get("context", [])]
+        self.check = checksum_fn(body.get("checksum"))
         self.meta = DetectorMeta(f"rule{rule_id}", "1", dtype, "span", source=source,
                                  se=max(0.5, metrics.get("sensitivity", 0.9)),
                                  sp=min(0.9999, metrics.get("specificity", 0.998)))
 
     def scan(self, text, cands, finding, ctx):
-        try:
-            matches = list(self.rx.finditer(text, timeout=0.05))
-        except TimeoutError:
-            return
-        for m in matches:
-            if self.context:
-                around = fold(text[max(0, m.start() - 30) : m.end() + 30])
-                if not any(w in around for w in self.context):
-                    continue
+        from scoutout.rules import rule_matches
+
+        for m in rule_matches(self.rx, text, self.context, self.check):
             finding.spans.append(Span(self.meta.data_type, m.start(), m.end(), self.meta.id))
 
 
@@ -199,8 +196,12 @@ class KnowledgePack:
             f = pdir / name
             return json.loads(f.read_text(encoding="utf-8")) if f.exists() else default
         rules = store.q("SELECT * FROM rules WHERE status='ACTIVE'")
+        naming = read("naming.json", {})
+        for r in rules:  # column-name tokens of approved rules become naming signals
+            for tok in json.loads(r["body_json"]).get("column_names", []):
+                naming.setdefault(r["data_type"], {})[tok] = max(naming.get(r["data_type"], {}).get(tok, 0.0), 0.7)
         return cls(version, pdir, rdir if rdir.exists() else None, hmac_key(cfg), rules,
-                   read("naming.json", {}), read("overrides.json", {}), read("classifier.json", None))
+                   naming, read("overrides.json", {}), read("classifier.json", None))
 
     def detectors(self) -> list[Detector]:
         if self._detectors is None:
@@ -258,9 +259,16 @@ class _MetaOnly(Detector):
         return None
 
 
+RULES_ONLY = "kurallar"  # no baseline pack yet, but approved rules exist
+
+
 def load_active_pack(cfg: Config, store: Store) -> KnowledgePack | None:
     r = store.one("SELECT version FROM packs WHERE active=1")
-    return KnowledgePack.load(cfg, store, r["version"]) if r else None
+    if r:
+        return KnowledgePack.load(cfg, store, r["version"])
+    if store.one("SELECT 1 FROM rules WHERE status='ACTIVE'"):
+        return KnowledgePack.load(cfg, store, RULES_ONLY)
+    return None
 
 
 # --- classifier (logistic regression; weights as JSON so the pack stays transparent and pickle-free) ----
