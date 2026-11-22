@@ -45,52 +45,74 @@ Get-ChildItem -Recurse D:\araclar\ScoutOut-MCP | Unblock-File
 
 ### Salt-okur SQL login (DBA çalıştırır)
 
+Login adı serbesttir; örnekte `veri_kesif_ro` kullanıldı. Kurulumda bu adı ve parolasını gireceksiniz.
+
 Yetkiler sunucu düzeyinde verilir. Böylece her gün restore edilen kopyalarda da yetkiler kendiliğinden geçerli kalır; veritabanı bazında kullanıcı açmak gerekmez.
 
 ```sql
-CREATE LOGIN scoutout_ro WITH PASSWORD = '<güçlü parola>', CHECK_POLICY = ON;
-GRANT CONNECT ANY DATABASE TO scoutout_ro;        -- bütün veritabanlarına bağlanabilir
-GRANT SELECT ALL USER SECURABLES TO scoutout_ro;  -- sadece okur (BoaCatalog dahil)
-GRANT VIEW SERVER STATE TO scoutout_ro;           -- değişen tabloları anlamak için (önerilir)
+CREATE LOGIN veri_kesif_ro WITH PASSWORD = '<güçlü parola>', CHECK_POLICY = ON;
+GRANT CONNECT ANY DATABASE TO veri_kesif_ro;        -- bütün veritabanlarına bağlanabilir
+GRANT SELECT ALL USER SECURABLES TO veri_kesif_ro;  -- sadece okur (BoaCatalog dahil)
+GRANT VIEW SERVER STATE TO veri_kesif_ro;           -- değişen tabloları anlamak için (önerilir)
 ```
 
 ScoutOut-MCP bağlanırken yetkileri kontrol eder. Login'in yazma yetkisi varsa bağlanmayı reddeder.
 
 ## 3. Kurulum
 
-Kurulum klasöründe PowerShell açın.
-
-**Kural üretimini sonra ayarlamak isterseniz** temel kurulum yeterli:
+Kurulum klasöründe PowerShell açıp betiği çalıştırın:
 
 ```powershell
 cd D:\araclar\ScoutOut-MCP
-.\scripts\install-offline.ps1 -Server "SQLSUNUCU,1433" -Workspace D:\calisma\veri-kesif
+.\scripts\install-offline.ps1 -Workspace D:\calisma\veri-kesif
 ```
 
-**Kurum LLM'ini de şimdi tanımlamak isterseniz:**
+**İlk kurulumda betik bağlantı bilgilerini terminalde sorar:**
+
+```
+== SQL Server bağlantı bilgileri
+SQL Server adı (ör. SQLSUNUCU, SQLSUNUCU,1433 veya SQLSUNUCU\INSTANCE): SQLKOPYA01,1433
+Kullanıcı adı (Windows hesabınızla bağlanmak için boş bırakıp Enter'a basın): veri_kesif_ro
+veri_kesif_ro parolası: ********
+```
+
+Bilgiler bu bilgisayara kaydedilir:
+- Sunucu adı ve kullanıcı adı `%APPDATA%\ScoutOut-Mcp\config.yaml` dosyasına yazılır.
+- Parola `%APPDATA%\ScoutOut-Mcp\db_password` dosyasına yazılır; bu dosyayı sadece sizin Windows kullanıcınız okuyabilir.
+- Kullanıcı adını boş bırakırsanız Windows hesabınızla bağlanılır ve parola sorulmaz.
+- Betiği sonra tekrar çalıştırırsanız bilgiler tekrar sorulmaz; kayıtlı olanlar kullanılır.
+
+**Bilgileri değiştirmek için** (başka sunucu, kullanıcı veya yeni parola):
 
 ```powershell
-.\scripts\install-offline.ps1 -Server "SQLSUNUCU,1433" -Workspace D:\calisma\veri-kesif -LlmEndpoint "https://LLM-GATEWAY/vllm-qwen3-235b-fp8/v1" -LlmModel "/data/models--Qwen--Qwen3-235B-FP8" -LlmApiKey
+.\scripts\install-offline.ps1 -Force
+```
+
+**Kurum LLM'ini de aynı anda tanımlamak için:**
+
+```powershell
+.\scripts\install-offline.ps1 -Workspace D:\calisma\veri-kesif -LlmEndpoint "https://LLM-GATEWAY/vllm-qwen3-235b-fp8/v1" -LlmModel "/data/models--Qwen--Qwen3-235B-FP8" -LlmApiKey
 ```
 
 Parametreler:
 
 | Parametre | Açıklama |
 |---|---|
-| `-Server` | SQL Server adresi ve portu (zorunlu) |
-| `-User` | Login adı (varsayılan `scoutout_ro`) |
+| `-Server`, `-User` | Sorulmasın isterseniz sunucu adı ve kullanıcı adı (parola her zaman terminalde sorulur) |
+| `-WindowsAuth` | Kullanıcı adı ve parola yerine Windows hesabıyla bağlan |
 | `-Workspace` | VS Code'da açacağınız çalışma klasörü. MCP tanımı ve örnek ajan buraya yazılır. Boşsa kurulum klasörü kullanılır |
 | `-TrustServerCertificate` | SQL Server sertifikası kurumsal CA ile imzalı değilse (test sunucuları) |
 | `-LlmEndpoint`, `-LlmModel` | Kurum LLM'i (OpenAI uyumlu, `/v1` ile biter). İzin listesine gateway adresi otomatik yazılır |
 | `-LlmApiKey` | Gateway anahtar istiyorsa: anahtarı sorar ve dosyaya yazar |
 | `-Python` | Python 3.12'nin yolu. Otomatik bulunamazsa verin |
-| `-Force` | Mevcut yapılandırmanın ve parolanın üzerine yazar |
+| `-Force` | Bağlantı bilgilerini yeniden sorar ve yapılandırmayı yeniden yazar |
 
 **Betik şunları yapar (hiçbir şey indirmez):**
+1. İlk kurulumda SQL Server adını, kullanıcı adını ve parolayı sorar.
 1. Python 3.12'yi bulur; yoksa repodaki kurulum dosyasından kurar.
 2. Kurulum klasöründe `.venv` sanal ortamını oluşturur ve bütün paketleri `offline\wheels` klasöründen kurar (`pip --no-index`).
 3. ODBC sürücüsünü kontrol eder.
-4. DB parolasını (ve isteğe bağlı LLM anahtarını) sorar. Bunları `%APPDATA%\ScoutOut-Mcp\` altında, sadece sizin Windows kullanıcınızın okuyabildiği dosyalara yazar. Parola repoya ve VS Code ayarlarına girmez.
+4. İstenirse LLM anahtarını sorar ve parola gibi korumalı bir dosyaya yazar. Parolalar repoya ve VS Code ayarlarına hiçbir zaman girmez.
 5. `%APPDATA%\ScoutOut-Mcp\config.yaml` dosyasını yazar.
 6. Çalışma klasörüne üç dosya yazar: `.mcp.json` (Copilot), `.vscode\mcp.json` (eski VS Code biçimi) ve `.github\agents\scoutout.agent.md` (örnek ajan).
 7. `scoutout-mcp --check` ile her şeyi doğrular.
@@ -157,7 +179,7 @@ Raporlar `%APPDATA%\ScoutOut-Mcp\data\reports\` klasörüne yazılır.
 | `Python 3.12 bulunamadı` ve kurulum başarısız | `offline\python\python-3.12.10-amd64.exe` dosyasını elle çalıştırın ("Install Now"), sonra betiği tekrar çalıştırın veya `-Python` ile yolu verin |
 | `Paket kurulumu başarısız` | Python sürümü 3.12 olmalı ve 64 bit olmalı. Klasörün eksiksiz kopyalandığını kontrol edin (`offline\wheels` içinde 46 dosya) |
 | `Data source name not found` / ODBC hatası | ODBC Driver 17 veya 18 kurulu değil (bkz. ön koşullar) |
-| `Login failed` | Login adı ya da parola yanlış. Parolayı yenilemek için betiği `-Force` ile çalıştırın |
+| `Login failed` | Kullanıcı adı ya da parola yanlış. Bilgileri yeniden girmek için betiği `-Force` ile çalıştırın |
 | `Bağlantının yazma yetkisi var` | Login'in yazma yetkisi var; salt-okur login kullanın (güvenlik gereği bağlanmaz) |
 | `SSL` / `certificate` hatası (SQL) | Sunucu sertifikası kurumsal CA ile imzalı değilse betiği `-TrustServerCertificate` ile çalıştırın |
 | `LLM sunucusu ... izin listesinde değil` | `config.yaml` → `llm.allowed_hosts` listesine gateway'in sunucu adını yazın |
