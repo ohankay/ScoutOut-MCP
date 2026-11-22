@@ -40,7 +40,8 @@ GENERIC = {
     "birth_date": ("Doğum tarihi", "Kolon bağlamı",
                    "Sadece tarih tipindeki ve adında doğum/birth/dob geçen kolonlarda; tarih değeri tek başına kişisel veri sayılmaz."),
 }
-SOURCE_TR = {"generic": "Kurulumla gelen", "base-derived": "Tabandan türetilen", "llm-derived": "Dil modeli önerisi"}
+SOURCE_TR = {"generic": "Kurulumla gelen", "base-derived": "Tabandan türetilen", "llm-derived": "Yerel LLM önerisi",
+             "agent": "Ajan önerisi"}
 
 
 def rule_label(det_id: str) -> str:

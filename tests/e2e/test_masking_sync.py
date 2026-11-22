@@ -1,7 +1,6 @@
 """The masking list lives in the main system and changes; ScoutOut reads it regularly and compares."""
 
 import os
-import re
 
 import pytest
 

@@ -1,0 +1,27 @@
+# ScoutOut-Mcp yapılandırması. Yeri: %APPDATA%\ScoutOut-Mcp\config.yaml (scripts\setup.ps1 oluşturur).
+# Parola bu dosyaya yazılmaz: password_file (setup.ps1 yazar) veya SCOUTOUT_DB_PASSWORD ortam değişkeni.
+
+connection:
+  server: "SUNUCU_ADI,1433"        # canlı kopyaların açıldığı izole SQL Server
+  user: scoutout_ro                # salt-okur login (yazma yetkisi görülürse bağlantı reddedilir)
+  auth: sql                        # veya windows
+  password_file: ""                # setup.ps1 doldurur
+  encrypt: true
+  trust_server_certificate: false
+
+mcp:
+  databases: []                    # boş = loginin açabildiği bütün kullanıcı veritabanları
+  exclude_databases: []
+  masking_database: BoaCatalog
+  masking_query: >-
+    SELECT DatabaseName, SchemaName, TableName, ColumnName, DataMaskType, TermName
+    FROM Dtg.TableColumnDataMaskDetail
+  k: 20                            # 20'den az görülen sayım ve biçimler ajana gösterilmez
+
+llm:                               # yerel LLM (Ollama); sadece kural madenciliğinde kullanılır
+  endpoint: http://localhost:11434/v1
+  model: qwen2.5:14b-instruct
+
+# scan:                            # isteğe bağlı tarama ayarları (ScoutOut ile aynı)
+#   concurrency: 4
+#   maintenance_window: "22:00-06:00"
