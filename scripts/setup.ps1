@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
   ScoutOut-Mcp kurulumu: bağımlılıklar, yapılandırma, parola dosyası, VS Code MCP tanımı ve örnek Copilot ajanı.
 
