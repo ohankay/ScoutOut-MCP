@@ -3,14 +3,13 @@
 import io
 import json
 import sqlite3
-from datetime import datetime
 from zoneinfo import ZoneInfo
 
 import pytest
 
 from scoutout.core.config import Config, ConfigError
 from scoutout.report import compare, masking_report, masking_rows, parse_masking_list
-from scoutout.sources import Source, config_for, get_source, list_sources, resolve, save_source, validate_schedule
+from scoutout.sources import Source, config_for, get_source, list_sources, resolve, save_source
 from scoutout.store import Store
 
 TZ = ZoneInfo("Europe/Istanbul")
@@ -80,10 +79,6 @@ def test_resolve_needs_a_choice_with_several_sources(tmp_path):
     with pytest.raises(ConfigError, match="--source"):
         resolve(store, Config(), None)
     assert resolve(store, Config(), "B")[1].connection.database == "b"
-
-
-def t(day, hh, mm=0):
-    return datetime(2026, 11, day, hh, mm, tzinfo=TZ)  # 2026-11-23 is a Monday
 
 
 def make_store(tmp_path):
