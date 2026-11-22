@@ -16,3 +16,5 @@ scoutout.yaml
 test_hesaplari.txt
 
 /reports/
+/.mcp.json
+/.vscode/

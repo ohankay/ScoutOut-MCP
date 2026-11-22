@@ -188,9 +188,75 @@ def _get_service():
     return _service
 
 
+def check() -> int:
+    """`scoutout-mcp --check`: is everything in place? Prints a short Turkish report (never a value)."""
+    from scoutout.connector import WriteAccessRefused
+
+    from .service import Service
+    from .settings import default_config_path, load
+
+    ok = True
+
+    def line(good: bool, text: str):
+        nonlocal ok
+        ok = ok and good
+        print(("[ OK ] " if good else "[HATA] ") + text)
+
+    try:
+        cfg, settings = load()
+    except Exception as e:  # noqa: BLE001
+        line(False, f"Yapılandırma ({default_config_path()}): {e}")
+        return 1
+    line(True, f"Yapılandırma: {default_config_path()}")
+    line(bool(cfg.connection.password) or cfg.connection.auth == "windows", "Parola bulundu" if cfg.connection.password
+         else "Parola yok (password_file veya SCOUTOUT_DB_PASSWORD)")
+    svc = Service(cfg, settings)
+    try:
+        dbs = svc.databases(refresh=True)
+        names = sorted(s.database for s, _ in dbs.values())
+        line(bool(names), f"Sunucu {cfg.connection.server}: {len(names)} veritabanı ({', '.join(names[:8])}{'…' if len(names) > 8 else ''})")
+        target = next((n for n in names if n.lower() != settings.masking_database.lower()), None)
+        if target:
+            try:
+                svc.catalog(target)
+                line(True, f"Salt-okur kontrolü geçti ({target})")
+            except WriteAccessRefused as e:
+                line(False, str(e))
+        try:
+            m = svc.masking_sync()
+            line(True, f"Maskeleme listesi okundu: {m['columns']} kolon (v{m['version']})")
+        except Exception as e:  # noqa: BLE001
+            line(False, f"Maskeleme listesi ({settings.masking_database}): {e}")
+    except Exception as e:  # noqa: BLE001
+        from scoutout.core.log import scrub
+
+        line(False, f"Sunucuya bağlanılamadı: {scrub(str(e))[:300]}")
+    if cfg.llm.endpoint:
+        try:
+            import httpx
+
+            from scoutout.llm import check_endpoint
+
+            check_endpoint(cfg.llm.endpoint, cfg.llm.allowed_hosts)
+            r = httpx.get(cfg.llm.endpoint.rstrip("/") + "/models", timeout=5)
+            models = [m.get("id") for m in r.json().get("data", [])]
+            line(cfg.llm.model in models, f"Yerel LLM {cfg.llm.endpoint}: " + (f"{cfg.llm.model} hazır" if cfg.llm.model in models
+                 else f"{cfg.llm.model} yüklü değil (ollama pull {cfg.llm.model})"))
+        except Exception as e:  # noqa: BLE001
+            print(f"[UYARI] Yerel LLM'e ulaşılamadı ({type(e).__name__}); sadece mine_rules etkilenir.")
+    else:
+        print("[UYARI] Yerel LLM ayarlı değil; sadece mine_rules kullanılamaz.")
+    svc.store.close()
+    return 0 if ok else 1
+
+
 def main() -> None:
     from scoutout.core.log import setup_logging
 
+    if "--check" in sys.argv[1:]:
+        for s in (sys.stdout, sys.stderr):
+            s.reconfigure(encoding="utf-8", errors="replace")
+        sys.exit(check())
     try:
         from .settings import load
 
