@@ -98,3 +98,18 @@ Listede olmayan hassas kolonlar eksik maskeleme olarak çıkmalı. ScoutOutSynth
 - Hiçbir araç cevabında gerçek değer yok. Sonradan `sim_out/calls_*.jsonl` dosyaları sentetik veriye karşı taranır.
 - Hata mesajları anlaşılır ve Türkçe; ham sürücü hatası yok.
 - Ajan aracı kendi seçebiliyor mu? Araç açıklamaları yeterli mi, parametreler sezgisel mi? Takılınan yerler not edilir.
+
+## Grup D — Kurum LLM'i ile kural üretimi (sunucu portu 8704)
+
+Kurum LLM'inin (Qwen3, vLLM gateway) yerine ayrı bir ajan kullanılır. `scripts/sim/relay_llm.py`, OpenAI uyumlu isteği bu ajana iletir; ajan gerçek örnek değerleri görür ve kural önerir. Copilot rolündeki ajan bu değerleri hiç görmez.
+
+| No | Kullanıcının isteği | Beklenen |
+|---|---|---|
+| D1 | "bank.Customer.CustomerNo bizim müşteri numaramız. Kurum LLM'iyle bu kolondan müşteri no tespit kuralı çıkar." | `mine_rules`: en az bir aday CUSTOMER_NO kuralı (`MN` + 8 rakam), duyarlılık ≥ 0,9. LLM isteği `enable_thinking: false` ile gider. |
+| D2 | "bank.Card.CardRef bizim kart referans numaramız (CARD_REF). Bunu da kişiye bağlı tanımlayıcı sayıyoruz; kural çıkar." | CARD_REF için aday kural (`CR` + 10 rakam). |
+| D3 | "ops.CrmLog.Message serbest metinlerinde bazen müşteri numarası geçiyor. Metnin içinde müşteri numarasını bulan bir kural çıkar." | Serbest metin: duyarlılık şartı aranmaz. Değeri metin içinde bulan (gerekirse bağlam kelimeli) bir aday kural; kesinlik ≥ 0,9. |
+| D4 | "Önerilen kuralların ölçümlerini tablo halinde göster, en iyilerini öner." | Ajan desen, bağlam, duyarlılık, kesinlik ve özgüllüğü gösterir. Gerçek değer göstermez. |
+| D5 | "Müşteri no ve kart referans kurallarını etkinleştir; ops.CrmLog ve bank.Card tablolarını yeniden tara." | CrmLog.Ref SENSITIVE CUSTOMER_NO, CrmLog.Message SPARSE (müşteri no), Card.CardRef SENSITIVE CARD_REF. |
+| D6 | "KartKopya'da da aynı tablolar bu kurallarla yakalanıyor mu?" | KartKopya'da CrmLog ve Card taranır; sonuçlar D5 ile aynı. |
+| D7 | "ops.LegacyImport.DekontNo hassas değil, ama 11 haneli olduğu için TCKN'ye benziyor. Yanlış alarm veren bir kural var mı, kontrol et." | Ajan DekontNo sonucuna bakar (`get_findings` / `explain_finding`): CLEAN. Etkin kuralların bu kolonda tutmadığını açıklar. |
+| D8 | "Kural raporunu Excel olarak ver." | `export_report(rules)`: öğrenilen kurallar ve kurulumla gelen kurallar. |

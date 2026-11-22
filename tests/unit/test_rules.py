@@ -151,3 +151,14 @@ def test_slow_pattern_is_rejected_within_the_time_budget(tmp_path, monkeypatch):
     status = submit(store, "u", "X_TYPE", {"pattern": r"[A-Z]{2}\d{8}"}, "agent", KEY, None, ["MN12345678"] * 400, ["x"] * 400)
     assert status == "REJECTED" and time.monotonic() - t0 < 5
     assert "yavaş" in store.one("SELECT reason FROM rules")["reason"]
+
+
+def test_context_gated_variant_is_not_a_duplicate(tmp_path):
+    store = Store(tmp_path / "s.db")
+    pos = [f"müşteri no MN{i:08d} kaydı" for i in range(60)]
+    neg = [f"ref MN{i:08d}" for i in range(60)]
+    assert submit(store, "u", "CUSTOMER_NO", {"pattern": r"MN\d{8}"}, "agent", KEY, None, pos, ["x"] * 60) == "CANDIDATE"
+    assert submit(store, "u", "CUSTOMER_NO", {"pattern": r"MN\d{8}"}, "agent", KEY, None, pos, neg) == "DUPLICATE"
+    gated = {"pattern": r"MN\d{8}", "context": ["müşteri"]}
+    assert submit(store, "u", "CUSTOMER_NO", gated, "agent", KEY, None, pos, neg) == "CANDIDATE"
+    assert submit(store, "u", "CUSTOMER_NO", {"pattern": r"MN\d{8}", "context": ["Müşteri"]}, "agent", KEY, None, pos, neg) == "DUPLICATE"

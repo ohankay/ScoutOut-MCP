@@ -358,6 +358,9 @@ class Service:
         for f in out:
             summary[f["zone"]] = summary.get(f["zone"], 0) + 1
         out.sort(key=lambda f: (SEVERITY.get(f["zone"], 9), not f["conflict"], f["database"], f["table"], f["column"]))
+        if table and not self._decisions(src.name, schema, tname):
+            return {"summary": {}, "findings": [], "matched": 0, "scanned": False,
+                    "message": f"{schema}.{tname} henüz taranmadı; önce scan ile tarayın."}
         return {"summary": summary, "conflicts": sum(f["conflict"] for f in out), "findings": out[: max(1, min(limit, 2000))],
                 "matched": len(out), "truncated": len(out) > limit}
 
