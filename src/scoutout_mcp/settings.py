@@ -43,7 +43,7 @@ def default_config_path() -> Path:
 
 
 def load(path: str | Path | None = None) -> tuple[Config, McpSettings]:
-    p = Path(path) if path else default_config_path()
+    p = (Path(path) if path else default_config_path()).resolve()
     if not p.is_file():
         raise ConfigError(f"Yapılandırma dosyası bulunamadı: {p}. Örnek: config.example.yaml")
     data = yaml.safe_load(p.read_text(encoding="utf-8")) or {}

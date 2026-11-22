@@ -40,7 +40,7 @@ class Rule(BaseModel):
     data_type: str = Field(description="Kuralın bulduğu tür (büyük harf)")
     pattern: str = Field(description="Değerin biçimini tarif eden düzenli ifade; en fazla 4 ardışık sabit karakter")
     context: list[str] = Field(default_factory=list, description="Yakında geçmesi gereken kelimeler (isteğe bağlı)")
-    checksum: Literal["tckn", "vkn", "luhn", "iban"] | None = Field(default=None, description="Kontrol hanesi algoritması")
+    checksum: str | None = Field(default=None, description="Kontrol hanesi algoritması: tckn, vkn, luhn veya iban (boş = yok)")
     column_names: list[str] = Field(default_factory=list, description="Bu türü gösteren kolon adı parçaları")
     ignore_case: bool = False
 
@@ -76,7 +76,8 @@ def build_server(service: Callable) -> MCPServer:
     def scan(databases: list[str] | None = None, tables: list[str] | None = None, force: bool = False) -> dict:
         """Deterministik kurallarla hassas veri taraması başlatır (arka planda). databases boşsa hepsi; tables verilirse
         sadece o tablolar (şema.tablo). Değişmemiş tablolar önceki sonuçla taşınır; force=True hepsini yeniden tarar.
-        Hemen job_id döner; ilerleme için scan_status."""
+        Hemen job_id döner; ilerleme için scan_status. Maskeleme listesinin tutulduğu veritabanı (BoaCatalog) tam taramaya
+        katılmaz."""
         return service().scan(databases, tables, force)
 
     @mcp.tool(annotations=READ)
@@ -119,8 +120,11 @@ def build_server(service: Callable) -> MCPServer:
     @tool_result
     def audit_masking(databases: list[str] | None = None, tables: list[str] | None = None, scan_missing: bool = False) -> dict:
         """Maskeleme tanımlarını tarama sonuçlarıyla karşılaştırır: gereksiz maskeleme (listede, yüksek güvenle temiz/boş),
-        eksik maskeleme (hassas ama listede yok), algoritma uyumsuzluğu, belirsizler ve listede olup taranmamış tablolar.
-        scan_missing=True taranmamış tabloları taramaya başlar."""
+        eksik maskeleme (hassas ama listede yok), algoritma uyumsuzluğu, belirsizler, listede olup taranmamış tablolar ve
+        listede olup veritabanında bulunmayan kolonlar.
+        scan_missing=True: listede olup taranmamış tabloları taramaya başlar (sadece listedeki tablolar; listede olmayan
+        tablolardaki eksik maskelemeyi görmek için önce scan ile veritabanını tarayın). Tarama bitince bu aracı tekrar çağırın.
+        complete=false ise sonuç eksiktir."""
         return service().audit_masking(databases, tables, scan_missing)
 
     @mcp.tool(annotations=WRITE)
@@ -147,28 +151,38 @@ def build_server(service: Callable) -> MCPServer:
     @tool_result
     def teach_baseline(entries: list[TypedColumn], negatives: list[Column] | None = None) -> dict:
         """Kurumun bildiği hassas kolonları (taban) öğretir: sunucu bu kolonlardan kendi içinde referans setleri, kolon adı
-        desenleri ve biçim kuralı adayları üretir. negatives: hassas olmadığı bilinen benzer kolonlar."""
+        desenleri ve biçim kuralı adayları üretir. negatives: hassas olmadığı bilinen benzer kolonlar.
+        type: TCKN, YKN, VKN, IBAN, PAN, PHONE, EMAIL, ADDRESS, GIVEN_NAME, SURNAME, PERSON_NAME, BIRTH_DATE, PASSPORT veya
+        kurumun kendi türü (ör. CUSTOMER_NO, ACCOUNT_NO).
+        Örnek: entries=[{"database": "DB", "table": "bank.Customer", "column": "CustomerNo", "type": "CUSTOMER_NO"}],
+        negatives=[{"database": "DB", "table": "bank.TxnLog", "column": "RefNo"}]"""
         return service().teach_baseline([e.model_dump() for e in entries], [n.model_dump() for n in negatives or []])
 
     @mcp.tool(annotations=WRITE)
     @tool_result
     def mine_rules(entries: list[TypedColumn], hint: str = "", max_rules: int = 8) -> dict:
         """Yerel LLM ile yeni deterministik kural adayları çıkarır: sunucu bu kolonlardan örnek değerleri SADECE yerel LLM'e
-        gösterir, önerileri doğrular ve ölçer. Size kural tanımları ve ölçümler döner. hint: verinin sözlü tarifi."""
+        gösterir, önerileri doğrular ve ölçer. Size kural tanımları ve ölçümler döner. hint: verinin sözlü tarifi.
+        Örnek: entries=[{"database": "DB", "table": "bank.Customer", "column": "CustomerNo", "type": "CUSTOMER_NO"}],
+        hint: MN ile başlayan 10 karakter"""
         return service().mine_rules([e.model_dump() for e in entries], hint, max_rules)
 
     @mcp.tool(annotations=WRITE)
     @tool_result
     def propose_rule(rule: Rule, positives: list[Column], negatives: list[Column] | None = None) -> dict:
-        """Kendi yazdığınız bir kuralı ölçtürür: positives kolonlarında bulmalı, negatives (boşsa aynı tabloların diğer
-        kolonları) kolonlarında bulmamalı. Sonuç aday kural ve ölçümleri."""
+        r"""Kendi yazdığınız bir kuralı ölçtürür: positives kolonlarında bulmalı, negatives (boşsa aynı tabloların diğer
+        kolonları) kolonlarında bulmamalı. Sonuç aday kural ve ölçümleri.
+        Örnek: rule={"data_type": "PAN", "pattern": "(?<!\d)\d{16}(?!\d)", "checksum": "luhn"},
+        positives=[{"database": "DB", "table": "bank.Card", "column": "CardNo"}]"""
         return service().propose_rule(rule.model_dump(), [p.model_dump() for p in positives],
                                       [n.model_dump() for n in negatives or []])
 
     @mcp.tool(annotations=ToolAnnotations(read_only_hint=False, destructive_hint=True, open_world_hint=False))
     @tool_result
     def decide_rule(rule_id: int, action: Literal["activate", "reject", "retire"], reason: str) -> dict:
-        """Bir kuralı etkinleştirir, reddeder veya emekliye ayırır. Sadece kullanıcı açıkça istediğinde çağırın."""
+        """Bir kuralı etkinleştirir, reddeder veya emekliye ayırır. Sadece kullanıcı açıkça istediğinde çağırın.
+        Not: teach_baseline ile öğretilen taban değerleri (referans setleri) kurallardan bağımsızdır; bir kuralı emekliye
+        ayırmak taban değerleriyle yapılan eşleşmeyi durdurmaz."""
         return service().decide_rule(rule_id, action, reason)
 
     return mcp
@@ -263,7 +277,11 @@ def main() -> None:
     except Exception as e:  # noqa: BLE001 - tools report the configuration error to the agent
         logging.basicConfig(stream=sys.stderr, level=logging.WARNING)
         logging.getLogger("scoutout").warning("configuration: %s", e)
-    build_server(_get_service).run("stdio")
+    if "--http" in sys.argv[1:]:  # local testing / simulation only: always bound to 127.0.0.1
+        port = int(sys.argv[sys.argv.index("--http") + 1])
+        build_server(_get_service).run("streamable-http", host="127.0.0.1", port=port)
+    else:
+        build_server(_get_service).run("stdio")
 
 
 if __name__ == "__main__":

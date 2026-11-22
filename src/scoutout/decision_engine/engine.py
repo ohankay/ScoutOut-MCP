@@ -229,7 +229,7 @@ def decide_column(ev: ColumnEvidence, meta_scores: dict[str, float], th: Thresho
             and top_meta[0] != best.data_type and best.data_type not in ("PERSON_NAME", "GIVEN_NAME", "SURNAME"):
         conflict, reason = True, f"İsim {top_meta[0]} gösteriyor, değerler {best.data_type}"
     elif zone == "SENSITIVE" and best and not free and top_meta[1] < 0.3:
-        conflict, reason = True, "Kolon adından anlaşılmayan hassas veri"
+        conflict, reason = True, "Kolon adı hassas veri çağrıştırmıyor ama içerikte bulundu; gözden geçirin"
 
     examples = []
     if best:

@@ -3,6 +3,7 @@ counts; ``server.py`` passes them through ``guard``. No method returns a cell va
 
 from __future__ import annotations
 
+import contextlib
 import fnmatch
 import json
 import re
@@ -55,6 +56,7 @@ class Service:
         self._catalogs: dict[str, tuple[float, object]] = {}
         self._lock = threading.RLock()
         self.jobs: dict[str, Job] = {}
+        self._masking_tried = False
 
     # --- databases ------------------------------------------------------------------------------------
     def _register(self, database: str) -> Source:
@@ -146,19 +148,32 @@ class Service:
         return d["zone"], d["sensitive_type"]
 
     def _masking_index(self):
-        from scoutout.masking import index_for
+        from scoutout.masking import current, index_for
 
+        if not self._masking_tried and current(self.store)[0] is None:
+            self._masking_tried = True  # first use: read the list once, so masking info is there without asking
+            with contextlib.suppress(Exception):  # masking info is then simply absent; audit_masking reports why
+                self.masking_sync()
         return index_for(self.store)
 
     def _finding(self, d, db_name: str, idx) -> dict:
+        from scoutout.decision_engine.engine import TYPE_PRIORITY
+
         zone, dtype = self._effective(d)
         rec = json.loads(d["record_json"])
+        same = [e["data_type"] for e in rec.get("evidence", []) if e["zone"] == zone and zone in SENSITIVE]
+        if d["review_status"] not in ("APPROVED", "OVERRIDDEN") and len(same) > 1:
+            # several types in one column (e.g. a name next to a TCKN in a note): the identifier matters most for masking
+            dtype = min(same, key=lambda t: TYPE_PRIORITY.index(t) if t in TYPE_PRIORITY else 99)
         info = idx.lookup(d["source"] or "", d["schema_name"], d["table_name"], d["column_name"]) if idx else None
         return {
             "database": db_name, "table": f"{d['schema_name']}.{d['table_name']}", "column": d["column_name"],
             "sql_type": d["sql_type"], "zone": zone, "sensitive_type": dtype,
             "rate": round(rec.get("p_corrected", 0.0), 4),
             "interval": [round(rec.get("ci_low", 0.0), 4), round(rec.get("ci_high", 0.0), 4)],
+            "types_found": [{"type": e["data_type"], "zone": e["zone"], "rate": round(e["p_corrected"], 4)}
+                            for e in sorted(rec.get("evidence", []), key=lambda e: -e["p_corrected"])
+                            if e["zone"] in SENSITIVE],
             "sample_size": rec.get("n", 0), "conflict": bool(d["conflict"]),
             "conflict_reason": rec.get("conflict_reason", "") if d["conflict"] else "",
             "review": {"APPROVED": "onaylandı", "OVERRIDDEN": "düzeltildi", "REJECTED": "reddedildi"}.get(d["review_status"] or "",
@@ -172,6 +187,7 @@ class Service:
 
     # --- tools: discovery --------------------------------------------------------------------------------
     def list_databases(self) -> dict:
+        self._masking_index()  # first call: reads the masking list once
         rows = []
         for src, info in self.databases(refresh=True).values():
             last = self.store.one("SELECT MAX(finished_at) at FROM runs WHERE source=? AND status LIKE 'done%'", src.name)
@@ -306,7 +322,8 @@ class Service:
                 r = self.store.one("SELECT status FROM runs WHERE id=?", run_id)
                 carried = self.store.one("SELECT COUNT(*) n FROM run_tables WHERE run_id=? AND status='carried'", run_id)["n"]
                 dbs.append({"database": name, "status": r["status"], "tables": p["total"], "done": p["done"],
-                            "carried_unchanged": carried, "failed": p["failed"], "eta_seconds": p["eta_s"], "run_id": run_id})
+                            "carried_unchanged": carried, "failed": p["failed"], "eta_seconds": p["eta_s"] if p["remaining"] else 0,
+                            "run_id": run_id})
             else:
                 dbs.append({"database": name, "status": "failed" if name in job.errors else "waiting",
                             "error": job.errors.get(name, "")})
@@ -378,7 +395,8 @@ class Service:
             "profile": {"null_rate": prof.get("null_rate"), "distinct_rate": prof.get("distinct_rate"),
                         "length": [prof.get("len_min"), prof.get("len_p50"), prof.get("len_max")],
                         "digit_rate": prof.get("digit_rate"), "alpha_rate": prof.get("alpha_rate"), "shapes": shapes},
-            "sampling": {"strategy": sampling.get("strategy"), "rows": sampling.get("n_actual"),
+            "sampling": {"strategy": sampling.get("strategy"), "rows_read": sampling.get("n_actual"),
+                         "rows_used_for_decision": rec.get("n"),
                          "bias_flags": sampling.get("bias_flags", [])},
             "knowledge_pack": rec.get("knowledge_pack_version"),
         }
@@ -423,7 +441,8 @@ class Service:
         def table_ok(schema: str, table: str) -> bool:
             return not want_tables or f"{schema}.{table}".lower() in want_tables or table.lower() in want_tables
 
-        out = {"unnecessary": [], "missing": [], "algorithm": [], "uncertain": [], "correct": 0, "not_scanned": []}
+        out = {"unnecessary": [], "missing": [], "algorithm": [], "uncertain": [], "correct": 0, "not_scanned": [],
+               "not_in_database": []}
         not_scanned: dict[str, set] = {}
         for src in srcs:
             decs = {(d["schema_name"].lower(), d["table_name"].lower(), d["column_name"].lower()): d
@@ -436,12 +455,22 @@ class Service:
                     continue
                 d = decs.get((e[1].lower(), e[2].lower(), e[3].lower()))
                 if d is None:
-                    if e[0] or self._has_table(self.catalog(src.database), f"{e[1]}.{e[2]}"):
-                        not_scanned.setdefault(src.database, set()).add(f"{e[1]}.{e[2]}")
+                    cat = self.catalog(src.database)
+                    t = next((t for t in cat.tables if t.schema.lower() == e[1].lower() and t.name.lower() == e[2].lower()), None)
+                    col = next((c for c in t.columns if c.name.lower() == e[3].lower()), None) if t else None
+                    entry = {"database": src.database, "table": f"{e[1]}.{e[2]}", "column": e[3], "algorithm": e[4], "term": e[5]}
+                    if t is None or col is None:
+                        if e[0]:  # an entry without a database name may belong to another database
+                            out["not_in_database"].append(entry | {"note": "Tablo bu veritabanında yok" if t is None
+                                                                   else "Kolon bu tabloda yok"})
+                    elif any(k[:2] == (e[1].lower(), e[2].lower()) for k in decs):
+                        out["uncertain"].append(entry | {"zone": None, "note": f"Kolon taranamadı ({col.type_label} tipi okunmuyor)"})
+                    else:
+                        not_scanned.setdefault(src.database, set()).add(t.full_name)
                     continue
                 f = self._finding(d, src.database, idx)
-                item = {k: f[k] for k in ("database", "table", "column", "zone", "sensitive_type", "rate", "interval",
-                                          "conflict", "review")} | {"algorithm": e[4], "term": e[5]}
+                item = {k: f[k] for k in ("database", "table", "column", "zone", "sensitive_type", "types_found", "rate",
+                                          "interval", "conflict", "conflict_reason", "review")} | {"algorithm": e[4], "term": e[5]}
                 if f["zone"] in SENSITIVE:
                     out["correct"] += 1
                     fit = algo_fit(e[4], f["zone"], f["sensitive_type"])
@@ -458,13 +487,21 @@ class Service:
                 zone, _ = self._effective(d)
                 if zone in SENSITIVE and not idx.listed(src.name, d["schema_name"], d["table_name"], d["column_name"]):
                     f = self._finding(d, src.database, idx)
-                    out["missing"].append({k: f[k] for k in ("database", "table", "column", "zone", "sensitive_type", "rate",
-                                                             "interval", "conflict", "review")})
+                    out["missing"].append({k: f[k] for k in ("database", "table", "column", "zone", "sensitive_type",
+                                                             "types_found", "rate", "interval", "conflict", "conflict_reason",
+                                                             "review")})
         out["not_scanned"] = [{"database": db, "tables": sorted(ts)} for db, ts in not_scanned.items()]
         result = {"masking_list": {"version": row["version"], "columns": row["entry_count"], "note": sync_note},
                   "summary": {"unnecessary": len(out["unnecessary"]), "missing": len(out["missing"]),
                               "algorithm": len(out["algorithm"]), "uncertain": len(out["uncertain"]), "correct": out["correct"],
-                              "tables_not_scanned": sum(len(x["tables"]) for x in out["not_scanned"])}} | out
+                              "tables_not_scanned": sum(len(x["tables"]) for x in out["not_scanned"]),
+                              "not_in_database": len(out["not_in_database"])}} | out
+        if not_scanned:
+            result["complete"] = False
+            result["message"] = ("Listedeki bazı tablolar henüz taranmadı; sayılar sadece taranmış tablolar için. "
+                                 "scan_missing=true ile tarayıp bittiğinde audit_masking'i tekrar çağırın.")
+        else:
+            result["complete"] = True
         if scan_missing and not_scanned:
             todo = {db: sorted(ts) for db, ts in not_scanned.items()}
             jobs = []
@@ -528,7 +565,8 @@ class Service:
             overview = [["Maskeleme denetimi", stamp], ["Maskeleme listesi", f"v{a['masking_list']['version']}"],
                         ["Gereksiz maskeleme", s["unnecessary"]], ["Eksik maskeleme", s["missing"]],
                         ["Algoritma gözden geçir", s["algorithm"]], ["Belirsiz", s["uncertain"]],
-                        ["Doğru maskelenen", s["correct"]], ["Listede olup taranmamış tablo", s["tables_not_scanned"]]]
+                        ["Doğru maskelenen", s["correct"]], ["Listede olup taranmamış tablo", s["tables_not_scanned"]],
+                        ["Listede olup veritabanında olmayan kolon", s["not_in_database"]]]
             sheets = [("Özet", overview, None)] + [(title, [head] + [line(r) for r in a[key]], 3) for key, title in
                                                    (("unnecessary", "Gereksiz maskeleme"), ("missing", "Eksik maskeleme"),
                                                     ("algorithm", "Algoritma"), ("uncertain", "Belirsiz"))]
@@ -539,13 +577,16 @@ class Service:
             sheet = [head] + [[r["id"], r["data_type"], r["source"], r["status"], r["pattern"], ", ".join(r["context"]),
                                r["checksum"] or "", ", ".join(r["column_names"]), r["metrics"].get("sensitivity"),
                                r["metrics"].get("precision"), r["reason"] or ""] for r in rules]
-            sheets = [("Kurallar", sheet, 1)]
-            count = len(rules)
+            generic = [["Kural", "Ad", "Tür", "Nasıl çalışır"]] + [[g["detector"], g["name"], g["kind"], g["how"]]
+                                                                 for g in self.list_rules()["generic"]]
+            sheets = [("Öğrenilen kurallar", sheet, 1), ("Kurulumla gelen", generic, 1)]
+            count = len(rules) + len(generic) - 1
         else:
             raise ValueError("kind: findings, masking_audit veya rules olmalı.")
         path = _xlsx(sheets, out_dir / f"scoutout_{kind}_{stamp}.xlsx")
         self.store.audit(USER, f"report.{kind}", str(path), rows=count)
-        return {"path": str(path), "rows": count}
+        return {"path": str(path), "rows": count,
+                "scope": database or "bütün veritabanları (veritabanı kolonuna göre ayrılmış)"}
 
     # --- tools: rules ---------------------------------------------------------------------------------
     def rule_view(self, r) -> dict:

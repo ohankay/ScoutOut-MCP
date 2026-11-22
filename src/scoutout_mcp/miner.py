@@ -196,7 +196,7 @@ def mine_rules(svc: Service, entries: list[dict], hint: str = "", max_rules: int
     return {"proposed": len(results), "candidates": counts.get("CANDIDATE", 0), "rejected": counts.get("REJECTED", 0),
             "invalid": counts.get("INVALID", 0), "rules": results,
             "values_sent_to_local_llm": len(all_shown),
-            "message": "Aday kurallar decide_rule(action='activate') ile etkinleştirilene kadar taramada kullanılmaz."}
+            "message": "Aday kurallar kullanıcı onayıyla decide_rule (action=activate) çağrılana kadar taramada kullanılmaz."}
 
 
 def propose_rule(svc: Service, rule: dict, positives: list[dict], negatives: list[dict]) -> dict:
@@ -234,6 +234,9 @@ def profile_column(svc: Service, database: str, table: str, column: str) -> dict
     for size in (2, 3, 4):
         cnt = Counter(v.strip()[:size] for v in vals if len(v.strip()) > size)
         prefixes += [{"prefix": p, "share": round(m / n, 3)} for p, m in cnt.most_common(5) if m >= k and m / n >= 0.05]
+    # a shorter prefix that always continues the same way adds nothing: keep the longest of such a chain
+    prefixes = [x for x in prefixes if not any(y["prefix"].startswith(x["prefix"]) and len(y["prefix"]) > len(x["prefix"])
+                                               and y["share"] == x["share"] for y in prefixes)]
     checks = {}
     for name in CHECKSUMS:
         fn = checksum_fn(name)

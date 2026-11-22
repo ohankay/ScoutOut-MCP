@@ -63,7 +63,8 @@ def world(server_cfg, small_db, tmp_path_factory):
                f"(N'Referans','{SYNTH}','bank','TxnLog','RefNo','varchar',2,'N_DET_NUMBER',1,1), "     # unnecessary
                f"(N'Kimlik','{SYNTH}','ops','LegacyImport','TCKN','char',2,'N_DET_NUMBER',1,1), "      # empty -> unnecessary
                f"(N'Açıklama','{SYNTH}','ops','CustomerNote','LongNote','nvarchar',3,'S_NULLIFICATION',1,1), "  # lighter
-               f"(N'Kart','{SYNTH}','bank','Card','CardNo','varchar',4,'S_DET_CARD',1,1)")              # correct
+               f"(N'Kart','{SYNTH}','bank','Card','CardNo','varchar',4,'S_DET_CARD',1,1), "             # correct
+               f"(N'Anne','{SYNTH}','bank','Customer','AnneKizlikSoyadi','nvarchar',5,'S_DET_NAME',1,1)")  # not in the DB
     db.execute("CREATE USER scoutout_ro FOR LOGIN scoutout_ro")
     db.execute("ALTER ROLE db_datareader ADD MEMBER scoutout_ro")
     db.close()
@@ -159,7 +160,8 @@ def test_profile_column_shows_shapes_not_values(world):
     _, server, _, _ = world
     p = call(server, "profile_column", database=SYNTH, table="bank.Customer", column="CustomerNo")
     assert p["shapes"][0]["shape"] == "XXdddddddd" and p["shapes"][0]["share"] > 0.9
-    assert {"prefix": "MN", "share": 1.0} in p["frequent_prefixes"]
+    assert any(x["prefix"].startswith("MN") and x["share"] == 1.0 for x in p["frequent_prefixes"])
+    assert len({x["share"] for x in p["frequent_prefixes"]}) == len(p["frequent_prefixes"])  # no redundant chain
     t = call(server, "profile_column", database=SYNTH, table="bank.Customer", column="TCKN")
     assert t["checksums"]["tckn"]["rate"] > 0.95
 
@@ -175,7 +177,9 @@ def test_masking_audit(world):
     assert cols["algorithm"]["ops.CustomerNote.LongNote"]["issue"] == "partial"
     assert {"bank.Customer.Email", "bank.Account.Iban"} <= set(cols["missing"])
     assert a["summary"]["correct"] >= 3 and a["summary"]["tables_not_scanned"] == 0
-    assert a["masking_list"]["columns"] == 5
+    assert a["masking_list"]["columns"] == 6
+    gone = {(x["table"], x["column"]): x["note"] for x in a["not_in_database"]}
+    assert gone == {("bank.Customer", "AnneKizlikSoyadi"): "Kolon bu tabloda yok"}
 
 
 def test_masking_list_changes_are_versioned(world, server_cfg):

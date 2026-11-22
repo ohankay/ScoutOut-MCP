@@ -41,7 +41,7 @@ def normalize(rule: dict) -> dict:
         if not CONTEXT_RX.match(w) or len(w) > 25:
             raise ValueError(f"context kelimesi sadece harf içermeli (en fazla 4 kelime, 25 karakter): {w[:25]!r}")
         ctx.append(w)
-    checksum = rule.get("checksum") or None
+    checksum = (str(rule.get("checksum") or "").strip().lower()) or None
     if checksum is not None and checksum not in CHECKSUMS:
         raise ValueError(f"checksum şunlardan biri olmalı: {', '.join(CHECKSUMS)} (veya boş).")
     cols = rule.get("column_names") or []
