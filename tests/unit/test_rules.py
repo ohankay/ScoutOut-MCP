@@ -107,3 +107,34 @@ def test_classifier_roundtrip():
     model = train_classifier(rows)
     assert json.loads(json.dumps(model)) == model  # plain JSON weights, no pickle
     assert predict(model, np.full(5, 3.0))[0][0] == "A"
+
+
+def test_llm_client_for_an_internal_vllm_gateway():
+    from scoutout.core.config import LlmConfig
+
+    calls = []
+
+    def handler(request: httpx.Request):
+        body = json.loads(request.content)
+        calls.append((request.headers.get("authorization"), body))
+        if "response_format" in body:
+            return httpx.Response(400, json={"error": "response_format not supported"})
+        return httpx.Response(200, json={"choices": [{"message": {"content": '<think>{"x": 1}</think> {"rules": [1]}'}}]})
+
+    cfg = LlmConfig(endpoint="https://llm-gw.kurum.local/vllm-qwen3/v1", model="/data/models--Qwen--Qwen3-235B-FP8",
+                    allowed_hosts=["llm-gw.kurum.local"], max_tokens=1024, api_key_env="TEST_LLM_KEY",
+                    extra_body={"chat_template_kwargs": {"enable_thinking": False}})
+    import os
+
+    os.environ["TEST_LLM_KEY"] = "k1"
+    try:
+        c = LlmClient.from_config(cfg, transport=httpx.MockTransport(handler))
+    finally:
+        os.environ.pop("TEST_LLM_KEY")
+    assert c.chat_json("s", "u") == {"rules": [1]}  # thinking block removed, retried without response_format
+    auth, body = calls[-1]
+    assert auth == "Bearer k1" and body["max_tokens"] == 1024 and body["temperature"] == 0
+    assert body["chat_template_kwargs"] == {"enable_thinking": False} and body["model"].endswith("Qwen3-235B-FP8")
+    assert not c.http._trust_env  # never through a proxy
+    with pytest.raises(ValueError, match="izin listesinde"):
+        LlmClient.from_config(LlmConfig(endpoint="https://api.openai.com/v1"))

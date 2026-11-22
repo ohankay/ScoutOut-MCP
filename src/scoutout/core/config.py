@@ -81,10 +81,27 @@ class ScanConfig:
 
 @dataclass
 class LlmConfig:
-    endpoint: str = ""  # OpenAI-compatible base URL, e.g. http://localhost:11434/v1 (Ollama); empty = no LLM
+    """An on-premise OpenAI-compatible endpoint (Ollama, vLLM, a gateway in front of vLLM). Never a cloud provider:
+    the host must be in ``allowed_hosts``. Requests never use a proxy."""
+
+    endpoint: str = ""  # base URL ending in /v1, e.g. http://localhost:11434/v1 or https://gateway/vllm-x/v1; empty = no LLM
     model: str = "qwen2.5:7b-instruct"
     allowed_hosts: list[str] = field(default_factory=lambda: ["localhost", "127.0.0.1", "::1", "ollama"])
     timeout_s: int = 120
+    temperature: float = 0.0
+    max_tokens: int | None = None
+    extra_body: dict = field(default_factory=dict)  # added to every request, e.g. {chat_template_kwargs: {enable_thinking: false}}
+    api_key_env: str = "SCOUTOUT_LLM_API_KEY"  # Bearer token if the server wants one (environment variable)
+    api_key_file: str = ""  # ... or a file outside the workspace
+    ca_bundle: str = ""  # empty = the operating system's certificate store (corporate CA on Windows); or a PEM file
+    json_mode: bool = True  # send response_format=json_object (retried without it if the server refuses)
+
+    @property
+    def api_key(self) -> str:
+        value = os.environ.get(self.api_key_env, "") if self.api_key_env else ""
+        if not value and self.api_key_file and Path(self.api_key_file).is_file():
+            value = Path(self.api_key_file).read_text(encoding="utf-8").strip()
+        return value
 
 
 @dataclass

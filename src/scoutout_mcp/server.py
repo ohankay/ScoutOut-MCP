@@ -1,4 +1,4 @@
-"""ScoutOut-Mcp: the MCP tools the TDM agent uses. Transport: stdio (started by VS Code).
+"""ScoutOut-Mcp: MCP tools for Copilot agents. Transport: stdio (started by VS Code).
 
 Every tool answer goes through ``guard``. Nothing here returns cell values.
 """
@@ -214,7 +214,8 @@ def check() -> int:
     try:
         dbs = svc.databases(refresh=True)
         names = sorted(s.database for s, _ in dbs.values())
-        line(bool(names), f"Sunucu {cfg.connection.server}: {len(names)} veritabanı ({', '.join(names[:8])}{'…' if len(names) > 8 else ''})")
+        shown = ", ".join(names[:8]) + ("…" if len(names) > 8 else "")
+        line(bool(names), f"Sunucu {cfg.connection.server}: {len(names)} veritabanı ({shown})")
         target = next((n for n in names if n.lower() != settings.masking_database.lower()), None)
         if target:
             try:
@@ -233,17 +234,14 @@ def check() -> int:
         line(False, f"Sunucuya bağlanılamadı: {scrub(str(e))[:300]}")
     if cfg.llm.endpoint:
         try:
-            import httpx
+            from scoutout.llm import LlmClient
 
-            from scoutout.llm import check_endpoint
-
-            check_endpoint(cfg.llm.endpoint, cfg.llm.allowed_hosts)
-            r = httpx.get(cfg.llm.endpoint.rstrip("/") + "/models", timeout=5)
-            models = [m.get("id") for m in r.json().get("data", [])]
-            line(cfg.llm.model in models, f"Yerel LLM {cfg.llm.endpoint}: " + (f"{cfg.llm.model} hazır" if cfg.llm.model in models
-                 else f"{cfg.llm.model} yüklü değil (ollama pull {cfg.llm.model})"))
+            models = LlmClient.from_config(cfg.llm).models()
+            have = cfg.llm.model in models
+            line(have, f"LLM {cfg.llm.endpoint}: " + (f"{cfg.llm.model} hazır" if have
+                 else f"{cfg.llm.model} bu sunucuda yok (mevcut: {', '.join(models[:5])})"))
         except Exception as e:  # noqa: BLE001
-            print(f"[UYARI] Yerel LLM'e ulaşılamadı ({type(e).__name__}); sadece mine_rules etkilenir.")
+            print(f"[UYARI] LLM'e ulaşılamadı ({type(e).__name__}: {str(e)[:150]}); sadece mine_rules etkilenir.")
     else:
         print("[UYARI] Yerel LLM ayarlı değil; sadece mine_rules kullanılamaz.")
     svc.store.close()
