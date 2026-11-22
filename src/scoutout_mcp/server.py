@@ -222,8 +222,11 @@ def check() -> int:
         line(False, f"Yapılandırma ({default_config_path()}): {e}")
         return 1
     line(True, f"Yapılandırma: {default_config_path()}")
-    line(bool(cfg.connection.password) or cfg.connection.auth == "windows", "Parola bulundu" if cfg.connection.password
-         else "Parola yok (password_file veya SCOUTOUT_DB_PASSWORD)")
+    if cfg.connection.auth == "windows":
+        line(True, "Windows kimlik doğrulaması (parola gerekmez)")
+    else:
+        line(bool(cfg.connection.password), f"Kullanıcı {cfg.connection.user}: " + ("parola bulundu" if cfg.connection.password
+             else "parola yok; kurulumu -Force ile tekrar çalıştırın"))
     svc = Service(cfg, settings)
     try:
         dbs = svc.databases(refresh=True)

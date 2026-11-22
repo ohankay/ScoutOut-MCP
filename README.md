@@ -11,12 +11,12 @@ Sunucu şunları yapar:
 
 İnternet erişimi kısıtlı bir bilgisayara kurulum için bkz. **[docs/KURULUM-OFFLINE.md](docs/KURULUM-OFFLINE.md)**. Gereken bütün paketler `offline/` klasöründe; kurulum hiçbir şey indirmez:
 ```powershell
-.\scripts\install-offline.ps1 -Server "SUNUCU,1433"
+.\scripts\install-offline.ps1
 ```
 
 İnternetli bir geliştirme bilgisayarında (uv ile):
 ```powershell
-.\scripts\setup.ps1 -Server "SUNUCU,1433"
+.\scripts\setup.ps1
 ```
 
 Betik şunları yapar:

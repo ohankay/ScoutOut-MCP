@@ -1,9 +1,10 @@
 # ScoutOut-Mcp yapılandırması. Yeri: %APPDATA%\ScoutOut-Mcp\config.yaml (scripts\setup.ps1 oluşturur).
-# Parola bu dosyaya yazılmaz: password_file (setup.ps1 yazar) veya SCOUTOUT_DB_PASSWORD ortam değişkeni.
+# Kurulum betiği sunucu adını, kullanıcı adını ve parolayı terminalde sorar. Parola bu dosyaya yazılmaz:
+# password_file (sadece bu Windows kullanıcısının okuyabildiği dosya) veya SCOUTOUT_DB_PASSWORD ortam değişkeni.
 
 connection:
   server: "SUNUCU_ADI,1433"        # canlı kopyaların açıldığı izole SQL Server
-  user: scoutout_ro                # salt-okur login (yazma yetkisi görülürse bağlantı reddedilir)
+  user: "KULLANICI_ADI"            # SQL kullanıcı adı; salt-okur olmalı (yazma yetkisi görülürse bağlantı reddedilir)
   auth: sql                        # veya windows
   password_file: ""                # setup.ps1 doldurur
   encrypt: true
