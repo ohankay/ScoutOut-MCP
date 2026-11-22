@@ -35,7 +35,7 @@ mcp:
 
     names, dbs, desc = asyncio.run(go())
     assert {"scan", "audit_masking", "mine_rules", "decide_rule"} <= names
-    assert [d["database"] for d in dbs["databases"]] == ["ScoutOutSynthSmall"]
+    assert "ScoutOutSynthSmall" in {d["database"] for d in dbs["databases"]}  # (+ the masking database if present)
     assert "TCKN" in {c["column"] for c in desc["columns"]}
     assert (tmp_path / "data" / "scoutout.db").exists()  # data next to the config, outside the workspace
     assert not list(tmp_path.glob("**/pw*"))[1:]  # the password file was not copied anywhere

@@ -24,6 +24,7 @@ log = logging.getLogger("scoutout")
 
 MIN_RECALL = 0.9
 MIN_PRECISION = 0.9
+MEASURE_SECONDS = 20.0  # a usable rule measures thousands of values in well under a second
 ADVERSARIAL = ["a" * 4000 + "!", "1" * 4000 + "x", " " * 4000 + "x", "aA1-" * 1000, "\n" * 2000 + "a",
                "@" * 3000, "MN" + "0" * 4000 + "x"]
 _NESTED_QUANT = re.compile(r"\((?:[^()\\]|\\.)*[+*}]\)\s*[+*{]")
@@ -146,7 +147,13 @@ def measure(pattern: str, positives: list[str], negatives: list[str], context: l
     ctx = [fold(w) for w in (context or [])]
     check = checksum_fn(checksum)
 
+    import time
+
+    deadline = time.monotonic() + MEASURE_SECONDS
+
     def hit(text: str) -> bool:
+        if time.monotonic() > deadline:  # a slow (not catastrophic) pattern times out on every value: stop early
+            raise TimeoutError
         return bool(rule_matches(rx, text, ctx, check))
 
     tp = sum(hit(v) for v in positives)
@@ -168,9 +175,12 @@ def submit(store: Store, user: str, dtype: str, body: dict, source: str, key: by
     reason = pre_reason or check_syntax_and_redos(body["pattern"]) or leak_reason(body, key, ref_dir)
     metrics = {}
     if reason is None:
-        metrics = measure(body["pattern"], positives, negatives, body.get("context"), body.get("checksum"),
-                          bool(body.get("ignore_case")))
-        if metrics["sensitivity"] < MIN_RECALL or metrics["precision"] < MIN_PRECISION:
+        try:
+            metrics = measure(body["pattern"], positives, negatives, body.get("context"), body.get("checksum"),
+                              bool(body.get("ignore_case")))
+        except TimeoutError:
+            metrics, reason = {}, "desen çok yavaş çalışıyor (ölçüm süresi aşıldı); daha basit bir desen yazın"
+        if reason is None and (metrics["sensitivity"] < MIN_RECALL or metrics["precision"] < MIN_PRECISION):
             reason = f"eşik altında (duyarlılık {metrics['sensitivity']:.2f}, kesinlik {metrics['precision']:.2f})"
     status = "CANDIDATE" if reason is None else "REJECTED"
     store.x("INSERT INTO rules (data_type, kind, body_json, source, status, metrics_json, created_at, decided_by, decided_at, reason) "

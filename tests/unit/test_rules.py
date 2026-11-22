@@ -138,3 +138,16 @@ def test_llm_client_for_an_internal_vllm_gateway():
     assert not c.http._trust_env  # never through a proxy
     with pytest.raises(ValueError, match="izin listesinde"):
         LlmClient.from_config(LlmConfig(endpoint="https://api.openai.com/v1"))
+
+
+def test_slow_pattern_is_rejected_within_the_time_budget(tmp_path, monkeypatch):
+    import time
+
+    import scoutout.rules as r
+
+    monkeypatch.setattr(r, "MEASURE_SECONDS", -1.0)  # stands in for a pattern that times out on every value
+    store = Store(tmp_path / "s.db")
+    t0 = time.monotonic()
+    status = submit(store, "u", "X_TYPE", {"pattern": r"[A-Z]{2}\d{8}"}, "agent", KEY, None, ["MN12345678"] * 400, ["x"] * 400)
+    assert status == "REJECTED" and time.monotonic() - t0 < 5
+    assert "yavaş" in store.one("SELECT reason FROM rules")["reason"]
